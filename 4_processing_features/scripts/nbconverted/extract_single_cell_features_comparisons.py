@@ -8,9 +8,9 @@
 #       format_version: '1.5'
 #       jupytext_version: 1.14.0
 #   kernelspec:
-#     display_name: Python [conda env:4.process-nf1-features_mod]
+#     display_name: Python [conda env:4.process-nf1-features_dev] *
 #     language: python
-#     name: conda-env-4.process-nf1-features_mod-py
+#     name: conda-env-4.process-nf1-features_dev-py
 # ---
 
 # ## Process single cell morphology features for CellProfiler readouts - Comparisons
@@ -58,24 +58,23 @@ linking_cols = {
 platemap_df = pd.read_csv(platemap_file)
 platemap_df
 
-# Instantiate SingleCells class
-sc = cells.SingleCells(
-    sql_file=single_cell_file,
-    compartments=["Per_Cells", "Per_Cytoplasm", "Per_Nuclei"],
-    compartment_linking_cols=linking_cols,
-    image_table_name="Per_Image",
-    strata=["Image_Metadata_Well", "Image_Metadata_Plate"],
-    merge_cols=["ImageNumber"],
-    image_cols="ImageNumber",
-    load_image_data=True,
-)
-
 # pycytominer
 # perform merge single cells without annotation
 # and export to parquet format, re-reading the result
 # from the parquet file for precision in comparison
 pycytominer_sc_df_without_annotation = pd.read_parquet(
-    path=sc.merge_single_cells(
+    path=cells.SingleCells(
+        sql_file=single_cell_file,
+        compartments=["Per_Cells", "Per_Cytoplasm", "Per_Nuclei"],
+        compartment_linking_cols=linking_cols,
+        image_table_name="Per_Image",
+        strata=["Image_Metadata_Well", "Image_Metadata_Plate"],
+        merge_cols=["ImageNumber"],
+        image_cols="ImageNumber",
+        load_image_data=True,
+        # perform merge_single_cells without annotation
+        # and send ask for parquet based output, returning a filepath
+    ).merge_single_cells(
         sc_output_file="pycytominer_singlecells_merge.parquet",
         output_type="parquet",
     )
@@ -87,7 +86,7 @@ pycytominer_sc_df_without_annotation.head()
 # perform merge without annotation and export
 # to parquet format, reading the result
 # from the parquet file for comparison
-pycytominer_sc_df_without_annotation = pd.read_parquet(
+pycytominer_transform_sc_df_without_annotation = pd.read_parquet(
     path=convert(
         source_path=single_cell_filepath,
         dest_path="./pycytominer-transform_singlecells_merge.parquet",
@@ -97,8 +96,69 @@ pycytominer_sc_df_without_annotation = pd.read_parquet(
         preset="cellprofiler_sqlite",
     )
 )
-pycytominer_sc_df_without_annotation.info()
-pycytominer_sc_df_without_annotation.head()
+pycytominer_transform_sc_df_without_annotation.info()
+pycytominer_transform_sc_df_without_annotation.head()
+
+# check for missing cols from pycytominer to pycytominer-transform
+[
+    col
+    for col in pycytominer_sc_df_without_annotation
+    if col not in pycytominer_transform_sc_df_without_annotation.columns
+]
+
+# check for missing cols from pycytominer-transform to pycytominer
+[
+    col
+    for col in pycytominer_transform_sc_df_without_annotation.columns
+    if col not in pycytominer_sc_df_without_annotation.columns
+]
+
+# minor rename for existing data
+pycytominer_transform_sc_df_without_annotation = (
+    pycytominer_transform_sc_df_without_annotation.rename(
+        columns={
+            "Cytoplasm_Parent_Cells": "Metadata_Cytoplasm_Parent_Cells",
+            "Cytoplasm_Parent_OrigNuclei": "Metadata_Cytoplasm_Parent_OrigNuclei",
+        }
+    )
+)
+
+# append columns which already exist but are differently named
+pycytominer_transform_sc_df_without_annotation[
+    "Metadata_Cells_Number_Object_Number"
+] = pycytominer_transform_sc_df_without_annotation["Metadata_Cytoplasm_Parent_Cells"]
+pycytominer_transform_sc_df_without_annotation[
+    "Metadata_Nuclei_Number_Object_Number"
+] = pycytominer_transform_sc_df_without_annotation[
+    "Metadata_Cytoplasm_Parent_OrigNuclei"
+]
+
+# check for missing cols from pycytominer to pycytominer-transform (after column changes)
+[
+    col
+    for col in pycytominer_sc_df_without_annotation
+    if col not in pycytominer_transform_sc_df_without_annotation.columns
+]
+
+# check for missing cols from pycytominer-transform to pycytominer (after column changes)
+[
+    col
+    for col in pycytominer_transform_sc_df_without_annotation.columns
+    if col not in pycytominer_sc_df_without_annotation.columns
+]
+
+# check the shape of both dataframes
+print(pycytominer_sc_df_without_annotation.shape)
+print(pycytominer_transform_sc_df_without_annotation.shape)
+
+# test dataframe equality
+pd.testing.assert_frame_equal(
+    left=pycytominer_sc_df_without_annotation,
+    right=pycytominer_transform_sc_df_without_annotation[
+        # use the pycytominer column order as a reference for pycytominer-transform output
+        pycytominer_sc_df_without_annotation.columns
+    ],
+)
 
 # +
 # Merge single cells across compartments
