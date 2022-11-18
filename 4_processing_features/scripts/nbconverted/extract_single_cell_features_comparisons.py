@@ -1,0 +1,132 @@
+# ---
+# jupyter:
+#   jupytext:
+#     formats: ipynb,scripts/nbconverted//py:light
+#     text_representation:
+#       extension: .py
+#       format_name: light
+#       format_version: '1.5'
+#       jupytext_version: 1.14.0
+#   kernelspec:
+#     display_name: Python [conda env:4.process-nf1-features_mod]
+#     language: python
+#     name: conda-env-4.process-nf1-features_mod-py
+# ---
+
+# ## Process single cell morphology features for CellProfiler readouts - Comparisons
+#
+# Compare the output of `pycytominer` and `pycytominer-transform` using NF1_SchwannCells_data output.
+
+# +
+import os
+import pathlib
+import warnings
+
+import pandas as pd
+from pycytominer import normalize
+from pycytominer.cyto_utils import cells, output
+from pycytominer_transform import convert
+
+# ignore warnings
+warnings.filterwarnings("ignore")
+
+# +
+# Set file and directory constants
+cp_dir = "../CellProfiler_pipelines"
+output_dir = "data"
+
+sql_file = "NF1_data.sqlite"
+single_cell_filepath = f"{cp_dir}/Analysis_Output/{sql_file}"
+single_cell_file = f"sqlite:///{cp_dir}/Analysis_Output/{sql_file}"
+platemap_file = f"{cp_dir}/Metadata/platemap_NF1_CP.csv"
+
+sc_output_file = pathlib.Path(f"{output_dir}/nf1_sc_cellprofiler.csv.gz")
+sc_norm_output_file = pathlib.Path(f"{output_dir}/nf1_sc_norm_cellprofiler.csv.gz")
+# -
+
+# Define custom linking columns between compartments
+linking_cols = {
+    "Per_Cytoplasm": {
+        "Per_Cells": "Cytoplasm_Parent_Cells",
+        "Per_Nuclei": "Cytoplasm_Parent_OrigNuclei",
+    },
+    "Per_Cells": {"Per_Cytoplasm": "Cells_Number_Object_Number"},
+    "Per_Nuclei": {"Per_Cytoplasm": "Nuclei_Number_Object_Number"},
+}
+
+# Load platemap file
+platemap_df = pd.read_csv(platemap_file)
+platemap_df
+
+# Instantiate SingleCells class
+sc = cells.SingleCells(
+    sql_file=single_cell_file,
+    compartments=["Per_Cells", "Per_Cytoplasm", "Per_Nuclei"],
+    compartment_linking_cols=linking_cols,
+    image_table_name="Per_Image",
+    strata=["Image_Metadata_Well", "Image_Metadata_Plate"],
+    merge_cols=["ImageNumber"],
+    image_cols="ImageNumber",
+    load_image_data=True,
+)
+
+# pycytominer
+# perform merge single cells without annotation
+# and export to parquet format, re-reading the result
+# from the parquet file for precision in comparison
+pycytominer_sc_df_without_annotation = pd.read_parquet(
+    path=sc.merge_single_cells(
+        sc_output_file="pycytominer_singlecells_merge.parquet",
+        output_type="parquet",
+    )
+)
+pycytominer_sc_df_without_annotation.info()
+pycytominer_sc_df_without_annotation.head()
+
+# pycytominer-transform
+# perform merge without annotation and export
+# to parquet format, reading the result
+# from the parquet file for comparison
+pycytominer_sc_df_without_annotation = pd.read_parquet(
+    path=convert(
+        source_path=single_cell_filepath,
+        dest_path="./pycytominer-transform_singlecells_merge.parquet",
+        dest_datatype="parquet",
+        merge=True,
+        merge_chunk_size=100,
+        preset="cellprofiler_sqlite",
+    )
+)
+pycytominer_sc_df_without_annotation.info()
+pycytominer_sc_df_without_annotation.head()
+
+# +
+# Merge single cells across compartments
+anno_kwargs = {"join_on": ["Metadata_well_position", "Image_Metadata_Well"]}
+
+sc_df = sc.merge_single_cells(
+    platemap=platemap_df,
+    **anno_kwargs,
+)
+
+# Save level 2 data as a csv
+output(sc_df, sc_output_file)
+
+print(sc_df.shape)
+sc_df.head()
+
+# +
+# Normalize single cell data and write to file
+normalize_sc_df = normalize(sc_df, method="standardize")
+
+output(normalize_sc_df, sc_norm_output_file)
+
+print(normalize_sc_df.shape)
+normalize_sc_df.head()
+# -
+
+# ### Visualize basic count statistics
+
+sc_df.Metadata_genotype.value_counts()
+
+pd.crosstab(sc_df.Metadata_genotype, sc_df.Metadata_Well)

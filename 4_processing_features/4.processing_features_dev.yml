@@ -1,4 +1,4 @@
-name: 4.process-nf1-features
+name: 4.process-nf1-features_dev
 channels:
   - conda-forge
 dependencies:
@@ -13,6 +13,11 @@ dependencies:
   - conda-forge::scipy=1.7
   - conda-forge::numpy=1.22
   - conda-forge::scikit-learn
+  - conda-forge::black
+  - conda-forge::isort
+  - conda-forge::jupyterlab_code_formatter
+  - conda-forge::jupytext
+  - pip
   - pip:
     - git+https://github.com/cytomining/pycytominer@8e5d27f592b10b10a73c55b6335e30e1c6c492fd
     - git+https://github.com/d33bs/pycytominer-transform@0299336d009a75664497b13c0fde004b69ba3d9f
