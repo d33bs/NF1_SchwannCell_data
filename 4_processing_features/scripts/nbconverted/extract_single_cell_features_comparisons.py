@@ -22,7 +22,9 @@ import os
 import pathlib
 import warnings
 
+import duckdb
 import pandas as pd
+import pyarrow.parquet as parquet
 from pycytominer import normalize
 from pycytominer.cyto_utils import cells, output
 from pycytominer_transform import convert
@@ -159,6 +161,59 @@ pd.testing.assert_frame_equal(
         pycytominer_sc_df_without_annotation.columns
     ],
 )
+
+# +
+# create a table from duckdb read of sqlite tables
+table = (
+    duckdb.connect()
+    .execute(
+        f"""
+            /* install and load sqlite plugin for duckdb */
+            INSTALL sqlite_scanner;
+            LOAD sqlite_scanner;
+            
+            /* attach sqlite db to duckdb for full table awareness */
+            CALL sqlite_attach('{single_cell_filepath}');
+            
+            /* perform query on sqlite tables through duckdb */
+            with Per_Image_Filtered as 
+                (select ImageNumber, Image_Metadata_Well, Image_Metadata_Plate from Per_Image)
+            SELECT * from Per_Cytoplasm cytoplasm
+            left join Per_Cells cells on
+                cells.ImageNumber = cytoplasm.ImageNumber
+                and cells.Cells_Number_Object_Number = cytoplasm.Cytoplasm_Parent_Cells
+            left join Per_Nuclei nuclei on
+                nuclei.ImageNumber = cytoplasm.ImageNumber
+                and nuclei.Nuclei_Number_Object_Number = cytoplasm.Cytoplasm_Parent_OrigNuclei
+            left join Per_Image_Filtered image on
+                image.ImageNumber = cytoplasm.ImageNumber
+            """
+    )
+    .arrow()
+    .drop_null()
+)
+
+# account for duplicate column names from joins
+cols = []
+# reversed order column check as col removals will change index order
+for i, colname in reversed(list(enumerate(table.column_names))):
+    if colname not in cols:
+        cols.append(colname)
+    else:
+        table = table.remove_column(i)
+
+# write the arrow table to parquet
+parquet.write_table(
+    table=table,
+    where="./duckdb_singlecells_merge.parquet",
+)
+
+# read the parquet file
+duckdb_sc_df_without_annotation = pd.read_parquet(
+    path="./duckdb_singlecells_merge.parquet"
+)
+duckdb_sc_df_without_annotation.info()
+duckdb_sc_df_without_annotation.head()
 
 # +
 # Merge single cells across compartments
