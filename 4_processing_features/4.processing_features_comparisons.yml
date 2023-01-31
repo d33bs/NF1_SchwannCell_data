@@ -1,4 +1,4 @@
-name: 4.process-nf1-features_dev
+name: 4.process-nf1-features_comparisons
 channels:
   - conda-forge
 dependencies:
@@ -20,4 +20,4 @@ dependencies:
   - pip
   - pip:
     - git+https://github.com/cytomining/pycytominer@8e5d27f592b10b10a73c55b6335e30e1c6c492fd
-    - git+https://github.com/d33bs/pycytominer-transform@ba44d13edce7661c480f9ef672cb158cac22595a
+    - git+https://github.com/d33bs/pycytominer-transform@f359b68cda8c4421dbefbef5a45fa63846a5f312
